@@ -1,5 +1,4 @@
 #include <board.h>
-#include "task_msg_name_user_def.h" //这行放到#include "task_msg_bus.h"前面先定义
 #include "task_msg_bus.h"
 
 #define DBG_TAG "task.msg.bus.sample"
@@ -63,7 +62,7 @@ static void os_reday_callback(task_msg_args_t args)
 static int task_msg_bus_sample(void)
 {
     //初始化消息总线(线程栈大小, 优先级, 时间片)
-    task_msg_bus_init(1024, 25, 10);
+    task_msg_bus_init(512, 25, 10);
     //订阅消息
     task_msg_subscribe(TASK_MSG_NET_REDAY5, net_reday_callback);
     task_msg_subscribe(TASK_MSG_OS_REDAY, os_reday_callback);
@@ -73,5 +72,7 @@ static int task_msg_bus_sample(void)
     //创建一个发布消息的线程
     rt_thread_t t_publish = rt_thread_create("msg_pub", msg_publish_thread_entry, RT_NULL, 512, 15, 10);
     rt_thread_startup(t_publish);
+
+    return RT_EOK;
 }
 INIT_APP_EXPORT(task_msg_bus_sample);
