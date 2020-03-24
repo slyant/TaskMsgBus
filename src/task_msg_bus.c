@@ -50,9 +50,9 @@ rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t m
     rt_err_t rst = rt_sem_take(&(node->msg_sem), timeout);
     if(rst==RT_EOK && out_args)
     {
-        out_args->msg_name = node->msg_name;
-        out_args->msg_args_json = RT_NULL;
-        if(node->msg_args_json) out_args->msg_args_json = rt_strdup(node->msg_args_json);
+        (*out_args).msg_name = node->msg_name;
+        (*out_args).msg_args_json = RT_NULL;
+        if(node->msg_args_json) (*out_args).msg_args_json = rt_strdup(node->msg_args_json);
     }
     rt_mutex_take(&wta_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_any_slist, &(node->slist));
@@ -89,9 +89,9 @@ rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, t
     rt_err_t rst = rt_sem_take(&(node->msg_sem), timeout);
     if(rst==RT_EOK && out_args)
     {
-        out_args->msg_name = msg_name;
-        out_args->msg_args_json = RT_NULL;
-        if(node->msg_args_json) out_args->msg_args_json = rt_strdup(node->msg_args_json);
+        (*out_args).msg_name = msg_name;
+        (*out_args).msg_args_json = RT_NULL;
+        if(node->msg_args_json) (*out_args).msg_args_json = rt_strdup(node->msg_args_json);
     }
     rt_mutex_take(&wt_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_slist, &(node->slist));
@@ -116,7 +116,6 @@ rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_ms
     }
     callback_node->callback = callback;
     rt_slist_init(&(callback_node->slist));
-
     rt_mutex_take(&cb_lock, RT_WAITING_FOREVER);
     rt_bool_t find_tag = RT_FALSE;
     task_msg_callback_node_t node;
@@ -184,7 +183,6 @@ rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_json)
     if(args_json) msg_args->msg_args_json = rt_strdup(args_json);
     node->args = msg_args;
     rt_slist_init(&(node->slist));
-
     rt_mutex_take(&msg_lock, RT_WAITING_FOREVER);
     rt_slist_append(&msg_slist, &(node->slist));
     rt_mutex_release(&msg_lock);
