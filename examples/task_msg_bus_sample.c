@@ -11,7 +11,7 @@
 static void msg_wait_thread_entry(void *params)
 {
     rt_err_t rst;
-    struct task_msg_args args;
+    task_msg_args_t args;
     while(1)
     {
         /*
@@ -28,12 +28,12 @@ static void msg_wait_thread_entry(void *params)
         rst = task_msg_wait_any(name_list, sizeof(name_list)/sizeof(enum task_msg_name), RT_WAITING_FOREVER, &args);
         if(rst==RT_EOK)
         {
-            LOG_D("task_msg_wait_any => args.msg_name:%d, args.msg_args_json:%s", args.msg_name, args.msg_args_json);
+            LOG_D("task_msg_wait_any => args.msg_name:%d, args.msg_args_json:%s", args->msg_name, args->msg_args_json);
         #ifdef TASK_MSG_USING_JSON
-            cJSON *root = cJSON_Parse(args.msg_args_json);
+            cJSON *root = cJSON_Parse(args->msg_args_json);
             if(root)
             {
-                if(args.msg_name==TASK_MSG_OS_REDAY)
+                if(args->msg_name==TASK_MSG_OS_REDAY)
                 {
                     int os_reday, id;
                     if(cJSON_item_get_number(root, "os_reday", &os_reday)==0)
@@ -41,7 +41,7 @@ static void msg_wait_thread_entry(void *params)
                     if(cJSON_item_get_number(root, "id", &id)==0)
                         LOG_D("TASK_MSG_OS_REDAY=>id:%d", id);
                 }
-                else if(args.msg_name==TASK_MSG_NET_REDAY)
+                else if(args->msg_name==TASK_MSG_NET_REDAY)
                 {
                     int os_reday, id;
                     if(cJSON_item_get_number(root, "net_reday", &os_reday)==0)
@@ -52,7 +52,7 @@ static void msg_wait_thread_entry(void *params)
                     if(cJSON_item_get_number(root, "id", &id)==0)
                         LOG_D("TASK_MSG_NET_REDAY=>id:%d", id);
                 }
-                else if(args.msg_name==TASK_MSG_3)
+                else if(args->msg_name==TASK_MSG_3)
                 {
                     int id;
                     const char *msg_3 = cJSON_item_get_string(root, "msg_3");
@@ -69,11 +69,7 @@ static void msg_wait_thread_entry(void *params)
         #endif
         }
         //释放内存
-        if(args.msg_args_json)
-        {
-            rt_free(args.msg_args_json);
-            args.msg_args_json = RT_NULL;
-        }
+        task_msg_delete(args);
     }    
 }
 
