@@ -18,7 +18,7 @@
 struct task_msg_args
 {
     enum task_msg_name msg_name;
-    char *msg_args_json;
+    void *msg_args;
 };
 typedef struct task_msg_args *task_msg_args_t;
 
@@ -63,10 +63,17 @@ struct task_msg_wait_any_node
 };
 typedef struct task_msg_wait_any_node *task_msg_wait_any_node_t;
 
+struct task_msg_delete_hook
+{
+    enum task_msg_name msg_name;
+    void (*hook)(void *args);
+};
+
 rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t  priority, rt_uint32_t tick);
 rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args));
-rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_json);
+rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_text);
+rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *args, rt_size_t args_size);
 rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, struct task_msg_args **out_args);
 rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len, rt_uint32_t timeout, struct task_msg_args **out_args);
 void task_msg_delete(task_msg_args_t args);

@@ -22,6 +22,9 @@ static struct rt_mutex cb_lock;
 static struct rt_mutex wt_lock;
 static struct rt_mutex wta_lock;
 static rt_slist_t callback_slist_array[TASK_MSG_COUNT];
+#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+    static struct task_msg_delete_hook delete_hooks[TASK_MSG_COUNT] = task_msg_delete_hooks;
+#endif
 static rt_slist_t msg_slist = RT_SLIST_OBJECT_INIT(msg_slist);
 static rt_slist_t msg_ref_slist = RT_SLIST_OBJECT_INIT(msg_ref_slist);
 static rt_slist_t wait_slist = RT_SLIST_OBJECT_INIT(wait_slist);
@@ -73,8 +76,16 @@ void task_msg_delete(task_msg_args_t args)
             if(item->ref_count <= 0)
             {
                 rt_slist_remove(&msg_ref_slist, &(item->slist));
-                if(item->args->msg_args_json)
-                    rt_free(item->args->msg_args_json);
+                if(item->args->msg_args)
+                {
+                #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+                    if(delete_hooks[item->args->msg_name].hook && delete_hooks[item->args->msg_name].msg_name == item->args->msg_name)
+                    {
+                        delete_hooks[item->args->msg_name].hook(item->args->msg_args);
+                    }
+                #endif
+                    rt_free(item->args->msg_args);
+                }
                 rt_free(item->args);
                 rt_free(item);
             }
@@ -110,6 +121,10 @@ rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t m
     {
         (*out_args)= node->args;
     }
+    else
+    {
+        task_msg_delete(node->args);
+    }
     rt_mutex_take(&wta_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_any_slist, &(node->slist));
     rt_mutex_release(&wta_lock);
@@ -144,6 +159,10 @@ rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, s
     {
         (*out_args) = node->args;
     }
+    else
+    {
+        task_msg_delete(node->args);
+    }
     rt_mutex_take(&wt_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_slist, &(node->slist));
     rt_mutex_release(&wt_lock);
@@ -155,7 +174,7 @@ rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, s
 
 rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args))
 {
-    if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
+    if(task_msg_bus_init_tag==RT_FALSE || callback==RT_NULL) return -RT_EINVAL;
 
     rt_mutex_take(&cb_lock, RT_WAITING_FOREVER);
     rt_bool_t find_tag = RT_FALSE;
@@ -192,7 +211,7 @@ rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_ms
 
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args))
 {
-    if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
+    if(task_msg_bus_init_tag==RT_FALSE || callback==RT_NULL) return -RT_EINVAL;
 
     task_msg_callback_node_t node;
     rt_mutex_take(&cb_lock, RT_WAITING_FOREVER);
@@ -210,7 +229,7 @@ rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_
     return RT_EOK;
 }
 
-rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_json)
+rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *args, rt_size_t args_size)
 {
     if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
 
@@ -230,8 +249,22 @@ rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_json)
     }
 
     msg_args->msg_name = msg_name;
-    msg_args->msg_args_json = RT_NULL;
-    if(args_json) msg_args->msg_args_json = rt_strdup(args_json);
+    msg_args->msg_args = RT_NULL;
+    if(args && args_size>0)
+    {
+        msg_args->msg_args = rt_calloc(1, args_size);
+        if(msg_args->msg_args)
+        {
+            rt_memcpy(msg_args->msg_args, args, args_size);
+        }
+        else
+        {
+            rt_free(node);
+            rt_free(msg_args);
+            LOG_E("task msg publish failed! msg_args create failed!");
+            return -RT_ENOMEM;
+        }
+    }
     node->args = msg_args;
     rt_slist_init(&(node->slist));
     rt_mutex_take(&msg_lock, RT_WAITING_FOREVER);
@@ -241,6 +274,17 @@ rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_json)
     rt_sem_release(&msg_sem);
 
     return RT_EOK;
+}
+
+rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_text)
+{
+    void *args = (void *)args_text;
+    rt_size_t args_size = 0;
+    if(args)
+    {
+        args_size = rt_strlen(args_text) + 1;
+    }
+    return task_msg_publish_obj(msg_name, args, args_size);
 }
 
 static void task_msg_callback_init(void)
