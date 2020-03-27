@@ -11,7 +11,7 @@
 #define TASK_MSG_BUS_DEF_H_
 #include <rtthread.h>
 
-#ifdef TASK_MSG_NAME_USER_DEF
+#ifdef TASK_MSG_USER_DEF
     #include "task_msg_bus_user_def.h"
     #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
         #ifndef task_msg_release_hooks
