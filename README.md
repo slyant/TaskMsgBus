@@ -37,7 +37,8 @@ RT-Thread online packages
 
 ## 3、使用 TaskMsgBus package
 
-按上述方法打开TaskMsgBus package，启用示例，编译工程，即可在控制台看到示例运行结果。
+按上述方法打开TaskMsgBus package，启用示例，编译工程，即可在控制台看到示例运行结果:
+![avatar](/image/PuTTY.png)
 
 ### 3.1 API 列表
 
