@@ -1,5 +1,5 @@
-#ifndef TASK_MSG_NAME_USER_DEF_H_
-#define TASK_MSG_NAME_USER_DEF_H_
+#ifndef TASK_MSG_BUS_USER_DEF_H_
+#define TASK_MSG_BUS_USER_DEF_H_
 
 struct msg_2_def
 {
@@ -26,13 +26,13 @@ enum task_msg_name{
         rt_uint8_t *buffer;
         rt_size_t buffer_size;
     };
-    extern void msg_3_delete_hook(void *args);
-    #define task_msg_delete_hooks {\
+    extern void msg_3_release_hook(void *args);
+    #define task_msg_release_hooks {\
             {TASK_MSG_OS_REDAY, RT_NULL},   \
             {TASK_MSG_NET_REDAY, RT_NULL},  \
             {TASK_MSG_1, RT_NULL},          \
             {TASK_MSG_2, RT_NULL},          \
-            {TASK_MSG_3, msg_3_delete_hook},          \
+            {TASK_MSG_3, msg_3_release_hook},          \
             {TASK_MSG_4, RT_NULL},          \
             {TASK_MSG_5, RT_NULL},          \
         }

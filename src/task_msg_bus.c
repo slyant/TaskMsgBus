@@ -23,13 +23,19 @@ static struct rt_mutex wt_lock;
 static struct rt_mutex wta_lock;
 static rt_slist_t callback_slist_array[TASK_MSG_COUNT];
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-    static struct task_msg_delete_hook delete_hooks[TASK_MSG_COUNT] = task_msg_delete_hooks;
+    static struct task_msg_release_hook release_hooks[TASK_MSG_COUNT] = task_msg_release_hooks;
 #endif
 static rt_slist_t msg_slist = RT_SLIST_OBJECT_INIT(msg_slist);
 static rt_slist_t msg_ref_slist = RT_SLIST_OBJECT_INIT(msg_ref_slist);
 static rt_slist_t wait_slist = RT_SLIST_OBJECT_INIT(wait_slist);
 static rt_slist_t wait_any_slist = RT_SLIST_OBJECT_INIT(wait_any_slist);
 
+/**
+ * Append a message reference to the slist:msg_ref_slist,
+ * each message reference are added only once.
+ *
+ * @param args: message reference
+ */
 static void msg_ref_append(task_msg_args_t args)
 {
     rt_bool_t is_first_append = RT_TRUE;
@@ -46,7 +52,6 @@ static void msg_ref_append(task_msg_args_t args)
     }
     if(is_first_append)
     {
-        char name[RT_NAME_MAX];
         task_msg_ref_node_t node = rt_calloc(1, sizeof(struct task_msg_ref_node));
         if(node == RT_NULL)
         {
@@ -54,8 +59,6 @@ static void msg_ref_append(task_msg_args_t args)
             LOG_E("there is no memory available!");
             return;
         }
-        rt_uint32_t count = rt_slist_len(&msg_ref_slist);
-        rt_snprintf(name, RT_NAME_MAX, "ref_%d", count);
         node->args = args;
         node->ref_count = 1;
         rt_slist_init(&(node->slist));
@@ -64,7 +67,14 @@ static void msg_ref_append(task_msg_args_t args)
     rt_mutex_release(&msg_ref_lock);
 }
 
-void task_msg_delete(task_msg_args_t args)
+/**
+ * Release a message reference from the slist:msg_ref_slist,
+ * only when the subscribers of all messages have consumed,
+ * can they really free from memory.
+ *
+ * @param args: message reference
+ */
+void task_msg_release(task_msg_args_t args)
 {
     task_msg_ref_node_t item;
     rt_mutex_take(&msg_ref_lock, RT_WAITING_FOREVER);
@@ -76,15 +86,15 @@ void task_msg_delete(task_msg_args_t args)
             if(item->ref_count <= 0)
             {
                 rt_slist_remove(&msg_ref_slist, &(item->slist));
-                if(item->args->msg_args)
+                if(item->args->msg_obj)
                 {
                 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-                    if(delete_hooks[item->args->msg_name].hook && delete_hooks[item->args->msg_name].msg_name == item->args->msg_name)
+                    if(release_hooks[item->args->msg_name].hook && release_hooks[item->args->msg_name].msg_name == item->args->msg_name)
                     {
-                        delete_hooks[item->args->msg_name].hook(item->args->msg_args);
+                        release_hooks[item->args->msg_name].hook(item->args->msg_obj);
                     }
                 #endif
-                    rt_free(item->args->msg_args);
+                    rt_free(item->args->msg_obj);
                 }
                 rt_free(item->args);
                 rt_free(item);
@@ -95,7 +105,16 @@ void task_msg_delete(task_msg_args_t args)
     rt_mutex_release(&msg_ref_lock);
 }
 
-rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len, rt_uint32_t timeout, struct task_msg_args **out_args)
+/**
+ * Blocks the current thread until a message in the message name list is received.
+ *
+ * @param msg_name_list: message name array
+ * @param msg_name_list_len: message name count
+ * @param timeout_ms: the waiting millisecond (-1:waiting forever until get resource)
+ * @param out_args: output parameter, return the received message reference address
+ * @return error code
+ */
+rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len, rt_int32_t timeout_ms, struct task_msg_args **out_args)
 {
     if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
 
@@ -116,14 +135,14 @@ rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t m
     rt_slist_append(&wait_any_slist, &(node->slist));
     rt_mutex_release(&wta_lock);
 
-    rt_err_t rst = rt_sem_take(&(node->msg_sem), timeout);
+    rt_err_t rst = rt_sem_take(&(node->msg_sem), rt_tick_from_millisecond(timeout_ms));
     if(rst==RT_EOK && out_args)
     {
         (*out_args)= node->args;
     }
     else
     {
-        task_msg_delete(node->args);
+        task_msg_release(node->args);
     }
     rt_mutex_take(&wta_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_any_slist, &(node->slist));
@@ -134,7 +153,15 @@ rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t m
     return rst;
 }
 
-rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, struct task_msg_args **out_args)
+/**
+ * Blocks the current thread until a message of the specified message name is received.
+ *
+ * @param msg_name: message name
+ * @param timeout_ms: the waiting millisecond (-1:waiting forever until get resource)
+ * @param out_args: output parameter, return the received message reference address
+ * @return error code
+ */
+rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_int32_t timeout_ms, struct task_msg_args **out_args)
 {
     if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
 
@@ -154,14 +181,14 @@ rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, s
     rt_slist_append(&wait_slist, &(node->slist));
     rt_mutex_release(&wt_lock);
 
-    rt_err_t rst = rt_sem_take(&(node->msg_sem), timeout);
+    rt_err_t rst = rt_sem_take(&(node->msg_sem), rt_tick_from_millisecond(timeout_ms));
     if(rst==RT_EOK && out_args)
     {
         (*out_args) = node->args;
     }
     else
     {
-        task_msg_delete(node->args);
+        task_msg_release(node->args);
     }
     rt_mutex_take(&wt_lock, RT_WAITING_FOREVER);
     rt_slist_remove(&wait_slist, &(node->slist));
@@ -172,6 +199,13 @@ rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_uint32_t timeout, s
     return rst;
 }
 
+/**
+ * Subscribe the message with the specified name and set the callback function.
+ *
+ * @param msg_name: message name
+ * @param callback: callback function name
+ * @return error code
+ */
 rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args))
 {
     if(task_msg_bus_init_tag==RT_FALSE || callback==RT_NULL) return -RT_EINVAL;
@@ -209,6 +243,13 @@ rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_ms
     return RT_EOK;
 }
 
+/**
+ * Unsubscribe the message with the specified name and cancle the callback function.
+ *
+ * @param msg_name: message name
+ * @param callback: callback function name
+ * @return error code
+ */
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args))
 {
     if(task_msg_bus_init_tag==RT_FALSE || callback==RT_NULL) return -RT_EINVAL;
@@ -229,7 +270,15 @@ rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_
     return RT_EOK;
 }
 
-rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *args, rt_size_t args_size)
+/**
+ * Publish a message object.
+ *
+ * @param msg_name: message name
+ * @param msg_obj: message object
+ * @param msg_size: message size
+ * @return error code
+ */
+rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size)
 {
     if(task_msg_bus_init_tag==RT_FALSE) return -RT_EINVAL;
 
@@ -249,13 +298,13 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *args, rt_size_t
     }
 
     msg_args->msg_name = msg_name;
-    msg_args->msg_args = RT_NULL;
-    if(args && args_size>0)
+    msg_args->msg_obj = RT_NULL;
+    if(msg_obj && msg_size>0)
     {
-        msg_args->msg_args = rt_calloc(1, args_size);
-        if(msg_args->msg_args)
+        msg_args->msg_obj = rt_calloc(1, msg_size);
+        if(msg_args->msg_obj)
         {
-            rt_memcpy(msg_args->msg_args, args, args_size);
+            rt_memcpy(msg_args->msg_obj, msg_obj, msg_size);
         }
         else
         {
@@ -275,18 +324,27 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *args, rt_size_t
 
     return RT_EOK;
 }
-
-rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *args_text)
+/**
+ * Publish a text message.
+ *
+ * @param msg_name: message name
+ * @param msg_text: message text
+ * @return error code
+ */
+rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text)
 {
-    void *args = (void *)args_text;
+    void *msg_obj = (void *)msg_text;
     rt_size_t args_size = 0;
-    if(args)
+    if(msg_obj)
     {
-        args_size = rt_strlen(args_text) + 1;
+        args_size = rt_strlen(msg_text) + 1;
     }
-    return task_msg_publish_obj(msg_name, args, args_size);
+    return task_msg_publish_obj(msg_name, msg_obj, args_size);
 }
 
+/**
+ * Initialize the callback slist array.
+ */
 static void task_msg_callback_init(void)
 {
     rt_mutex_take(&cb_lock, RT_WAITING_FOREVER);
@@ -297,6 +355,10 @@ static void task_msg_callback_init(void)
     rt_mutex_release(&cb_lock);
 }
 
+/**
+ * Task message bus thread entry.
+ * @param params
+ */
 static void task_msg_bus_thread_entry(void *params)
 {
     while(1)
@@ -354,27 +416,34 @@ static void task_msg_bus_thread_entry(void *params)
                 rt_mutex_take(&msg_lock, RT_WAITING_FOREVER);
                 rt_slist_remove(&msg_slist, &(msg_args_node->slist));
                 rt_mutex_release(&msg_lock);
-                //free msg
-                task_msg_delete(msg_args_node->args);
+                //release msg
+                task_msg_release(msg_args_node->args);
                 rt_free(msg_args_node);
             }
         }
     }
 }
 
+/**
+ * Initialize message bus components.
+ *
+ * @param stack_size: message bus thread stack size
+ * @param priority: thread priority
+ * @param tick: thread tick
+ * @return error code
+ */
 rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t  priority, rt_uint32_t tick)
 {
-    if(task_msg_bus_init_tag==RT_FALSE)
-    {
-        rt_sem_init(&msg_sem, "msg_sem", 0, RT_IPC_FLAG_FIFO);
-        rt_mutex_init(&msg_lock, "msg_lock", RT_IPC_FLAG_FIFO);
-        rt_mutex_init(&msg_ref_lock, "ref_lock", RT_IPC_FLAG_FIFO);
-        rt_mutex_init(&cb_lock, "cb_lock", RT_IPC_FLAG_FIFO);
-        rt_mutex_init(&wt_lock, "wt_lock", RT_IPC_FLAG_FIFO);
-        rt_mutex_init(&wta_lock, "wta_lock", RT_IPC_FLAG_FIFO);
-        task_msg_callback_init();
-        task_msg_bus_init_tag = RT_TRUE;
-    }
+    if(task_msg_bus_init_tag) return -RT_EBUSY;
+
+    rt_sem_init(&msg_sem, "msg_sem", 0, RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&msg_lock, "msg_lock", RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&msg_ref_lock, "ref_lock", RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&cb_lock, "cb_lock", RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&wt_lock, "wt_lock", RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&wta_lock, "wta_lock", RT_IPC_FLAG_FIFO);
+    task_msg_callback_init();
+    task_msg_bus_init_tag = RT_TRUE;
 
     rt_thread_t t = rt_thread_create("msg_bus",
             task_msg_bus_thread_entry,
