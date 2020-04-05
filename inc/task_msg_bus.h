@@ -44,24 +44,22 @@ struct task_msg_callback_node
 };
 typedef struct task_msg_callback_node *task_msg_callback_node_t;
 
+struct task_msg_subscriber_node
+{
+    int subscriber_id;
+    enum task_msg_name msg_name;
+    rt_sem_t sem;
+    rt_slist_t slist;
+};
+typedef struct task_msg_subscriber_node *task_msg_subscriber_node_t;
+
 struct task_msg_wait_node
 {
-    enum task_msg_name msg_name;
-    struct rt_semaphore msg_sem;
+    task_msg_subscriber_node_t subscriber;
     task_msg_args_t args;
     rt_slist_t slist;
 };
 typedef struct task_msg_wait_node *task_msg_wait_node_t;
-
-struct task_msg_wait_any_node
-{
-    enum task_msg_name *msg_name_list;
-    rt_uint8_t msg_name_list_len;
-    struct rt_semaphore msg_sem;
-    task_msg_args_t args;
-    rt_slist_t slist;
-};
-typedef struct task_msg_wait_any_node *task_msg_wait_any_node_t;
 
 struct task_msg_release_hook
 {
@@ -74,8 +72,10 @@ rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_ms
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);
 rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size);
-rt_err_t task_msg_wait_until(enum task_msg_name msg_name, rt_int32_t timeout, struct task_msg_args **out_args);
-rt_err_t task_msg_wait_any(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len, rt_int32_t timeout, struct task_msg_args **out_args);
+int task_msg_subscriber_create(enum task_msg_name msg_name);
+int task_msg_subscriber_create2(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len);
+void task_msg_subscriber_delete(int subscriber_id);
+rt_err_t task_msg_wait_until(int subscriber_id, rt_int32_t timeout_ms, struct task_msg_args **out_args);
 void task_msg_release(task_msg_args_t args);
 
 #endif /* TASK_MSG_BUS_H_ */

@@ -4,7 +4,7 @@
 #include "cJSON_util.h"
 #endif
 
-#define LOG_TAG              "task.msg.bus.sample"
+#define LOG_TAG              "sample"
 #define LOG_LVL              LOG_LVL_DBG
 #include <ulog.h>
 
@@ -19,11 +19,13 @@
 
 static void net_reday_callback(task_msg_args_t args)
 {
+    //这里不要做耗时操作
     LOG_D("[net_reday_callback]:TASK_MSG_NET_REDAY => args->msg_name:%d, args->msg_obj:%s", args->msg_name, args->msg_obj);
 }
 
 static void os_reday_callback(task_msg_args_t args)
 {
+    //这里不要做耗时操作
     LOG_D("[os_reday_callback]:TASK_MSG_OS_REDAY => msg_obj is null:%s", args->msg_obj==RT_NULL ? "true" : "false");
 }
 
@@ -31,15 +33,23 @@ static void msg_wait_thread_entry(void *params)
 {
     rt_err_t rst;
     task_msg_args_t args;
+    //创建消息订阅者
+    int subscriber_id = task_msg_subscriber_create(TASK_MSG_NET_REDAY);
+    if(subscriber_id < 0) return;
+
     while(1)
     {
-        //测试 task_msg_wait_until
-        rst = task_msg_wait_until(TASK_MSG_NET_REDAY, RT_WAITING_FOREVER, &args);
+        rst = task_msg_wait_until(subscriber_id, 50, &args);
         if(rst==RT_EOK)
         {
             LOG_D("[task_msg_wait_until]:TASK_MSG_NET_REDAY => args.msg_name:%d, args.msg_obj:%s", args->msg_name, args->msg_obj);
+            rt_thread_mdelay(200);//模拟耗时操作，在此期间发布的消息不会丢失
             //释放消息
             task_msg_release(args);
+        }
+        else
+        {
+            //可以做其它操作，在此期间发布的消息不会丢失
         }
     }
 }
@@ -47,11 +57,14 @@ static void msg_wait_any_thread_entry(void *params)
 {
     rt_err_t rst;
     task_msg_args_t args = RT_NULL;
+    const enum task_msg_name name_list[4] = {TASK_MSG_OS_REDAY, TASK_MSG_NET_REDAY, TASK_MSG_2, TASK_MSG_3};
+    //创建 多消息订阅者
+    int subscriber_id = task_msg_subscriber_create2(name_list, sizeof(name_list)/sizeof(enum task_msg_name));
+    if(subscriber_id < 0) return;
+
     while(1)
     {
-        //测试 task_msg_wait_any
-        const enum task_msg_name name_list[4] = {TASK_MSG_OS_REDAY, TASK_MSG_NET_REDAY, TASK_MSG_2, TASK_MSG_3};
-        rst = task_msg_wait_any(name_list, sizeof(name_list)/sizeof(enum task_msg_name), RT_WAITING_FOREVER, &args);
+        rst = task_msg_wait_until(subscriber_id, 50, &args);
         if(rst==RT_EOK)
         {
             if(args->msg_name==TASK_MSG_OS_REDAY)
@@ -88,8 +101,13 @@ static void msg_wait_any_thread_entry(void *params)
                 LOG_HEX("[task_msg_wait_any]:TASK_MSG_3 => msg_3.buffer", 16, msg_3->buffer, msg_3->buffer_size);
             }
         #endif
+            rt_thread_mdelay(200);//模拟耗时操作，在此期间发布的消息不会丢失
             //释放消息
             task_msg_release(args);
+        }
+        else
+        {
+            //可以做其它操作，在此期间发布的消息不会丢失
         }
     }    
 }
@@ -98,17 +116,30 @@ static void msg_publish_thread_entry(void *params)
 {
     static int i = 0;
     char msg_text[50];
+    rt_thread_mdelay(1000);
     while (1)
     {
         if(i % 4 == 0)
         {
             //不带消息内容
             task_msg_publish(TASK_MSG_OS_REDAY, RT_NULL);
+            rt_thread_mdelay(10);
+            task_msg_publish(TASK_MSG_OS_REDAY, RT_NULL);
+            rt_thread_mdelay(10);
+            task_msg_publish(TASK_MSG_OS_REDAY, RT_NULL);
+            rt_thread_mdelay(10);
+            task_msg_publish(TASK_MSG_OS_REDAY, RT_NULL);
         }
         else if(i % 4 == 1)
         {
             //json/text消息
             rt_snprintf(msg_text, 50, "{\"net_reday\":%d,\"ip\":\"%s\",\"id\":%ld}", 1, "10.0.0.20", i);
+            task_msg_publish(TASK_MSG_NET_REDAY, msg_text);
+            rt_thread_mdelay(10);
+            task_msg_publish(TASK_MSG_NET_REDAY, msg_text);
+            rt_thread_mdelay(10);
+            task_msg_publish(TASK_MSG_NET_REDAY, msg_text);
+            rt_thread_mdelay(10);
             task_msg_publish(TASK_MSG_NET_REDAY, msg_text);
         }
         else if(i % 4 == 2)
@@ -117,6 +148,12 @@ static void msg_publish_thread_entry(void *params)
             struct msg_2_def msg_2;
             msg_2.id = i;
             rt_snprintf(msg_2.name, 8, "%s\0", "hello");
+            task_msg_publish_obj(TASK_MSG_2, &msg_2, sizeof(struct msg_2_def));
+            rt_thread_mdelay(10);
+            task_msg_publish_obj(TASK_MSG_2, &msg_2, sizeof(struct msg_2_def));
+            rt_thread_mdelay(10);
+            task_msg_publish_obj(TASK_MSG_2, &msg_2, sizeof(struct msg_2_def));
+            rt_thread_mdelay(10);
             task_msg_publish_obj(TASK_MSG_2, &msg_2, sizeof(struct msg_2_def));
         }
         else
@@ -135,9 +172,10 @@ static void msg_publish_thread_entry(void *params)
             msg_3.buffer_size = 32;
             task_msg_publish_obj(TASK_MSG_3, &msg_3, sizeof(struct msg_3_def));
         #endif
+            break;
         }
 
-        rt_thread_mdelay(2000);
+        rt_thread_mdelay(50);
         i++;
     }
 }
