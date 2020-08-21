@@ -76,7 +76,6 @@ struct task_msg_loop
 };
 typedef struct task_msg_loop *task_msg_loop_t;
 
-rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t priority, rt_uint32_t tick);
 rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void (*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void (*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);
