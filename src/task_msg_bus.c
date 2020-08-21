@@ -711,7 +711,7 @@ static void task_msg_bus_thread_entry(void *params)
  * @param tick: thread tick
  * @return error code
  */
-rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t priority, rt_uint32_t tick)
+int task_msg_bus_init(void)
 {
     if (task_msg_bus_init_tag)
         return -RT_EBUSY;
@@ -726,7 +726,7 @@ rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t priority, rt_uint3
     task_msg_bus_init_tag = RT_TRUE;
 
     rt_thread_t t = rt_thread_create("msg_bus", task_msg_bus_thread_entry,
-    RT_NULL, stack_size, priority, tick);
+    RT_NULL, TASK_MSG_THREAD_STACK_SIZE, TASK_MSG_THREAD_PRIORITY, 20);
     if (t == RT_NULL)
     {
         LOG_E("task msg bus initialize failed! msg_bus_thread create failed!");
@@ -744,3 +744,4 @@ rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t priority, rt_uint3
     }
     return rst;
 }
+INIT_COMPONENT_EXPORT(task_msg_bus_init);
