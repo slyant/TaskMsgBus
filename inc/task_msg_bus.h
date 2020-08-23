@@ -61,10 +61,11 @@ struct task_msg_wait_node
 };
 typedef struct task_msg_wait_node *task_msg_wait_node_t;
 
-struct task_msg_release_hook
+struct task_msg_dump_release_hook
 {
     enum task_msg_name msg_name;
-    void (*hook)(void *args);
+    void *(*dump)(void *args);
+    void (*release)(void *args);
 };
 
 struct task_msg_loop
@@ -83,11 +84,11 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_siz
 rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text);
 rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
         rt_size_t msg_size);
-task_msg_loop_t task_msg_loop_create(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
+task_msg_loop_t task_msg_loop_create(void);
+rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop);
+rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
         rt_size_t msg_size);
-rt_err_t task_msg_loop_delete(task_msg_loop_t msg_timing);
-rt_err_t task_msg_loop_start(task_msg_loop_t msg_timing);
-rt_err_t task_msg_loop_stop(task_msg_loop_t msg_timing);
+rt_err_t task_msg_loop_stop(task_msg_loop_t msg_loop);
 int task_msg_subscriber_create(enum task_msg_name msg_name);
 int task_msg_subscriber_create2(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len);
 void task_msg_subscriber_delete(int subscriber_id);

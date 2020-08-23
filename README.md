@@ -28,6 +28,8 @@ RT-Thread online packages
     system packages --->
         [*]TaskMsgBus: For sending and receiving json/text/object messages between threads based on RT-Thread
         TaskMsgBus --->
+            task message thread stack size [256]
+            task message thread priority [5]
             [*]task msg name define in user file 'task_msg_user_def.h'
             [*]task msg format using json
             [*]task msg object using dynamic memory
@@ -45,10 +47,16 @@ RT-Thread online packages
 | API        | 功能                     |
 | -------------- | ------------------------ |
 | rt_err_t task_msg_bus_init(rt_uint32_t stack_size, rt_uint8_t  priority, rt_uint32_t tick); | 初始化消息总线 |
-| rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args));                                    | 订阅消息 |
+| rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args)); | 订阅消息 |
 | rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args)); | 取消订阅消息 |
 | rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);  | 发布text/json消息 |
 | rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 发布任意数据类型消息 |
+| rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text); | 延时发布text/json消息 |
+| rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 延时发布任意数据类型消息 |
+| task_msg_loop_t task_msg_loop_create(void); | 创建定时循环消息对象，返回定时循环消息对象句柄 |
+| rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop); | 停止并删除定时循环消息对象 |
+| rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 启动定时循环消息发布 |
+| rt_err_t task_msg_loop_stop(task_msg_loop_t msg_loop); | 停止定时循环消息发布 |
 | int task_msg_subscriber_create(enum task_msg_name msg_name); | 创建一个消息订阅者，返回订阅者ID |
 | int task_msg_subscriber_create2(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len); | 创建一个可以订阅多个主题的消息订阅者，返回订阅者ID |
 | rt_err_t task_msg_wait_until(int subscriber_id, rt_int32_t timeout_ms, struct task_msg_args **out_args); | 阻塞等待指定订阅者的消息 |
@@ -93,27 +101,52 @@ struct msg_3_def
 ```
 
 
-如果要在结构体的指针类型的字段中动态分配内存，需要在前面的包管理器中启用[task msg object using dynamic memory]，同时，需要定义释放该消息涉及动态分配内存的钩子函数，例如：
+如果要在结构体的指针类型的字段中动态分配内存，需要在前面的包管理器中启用[task msg object using dynamic memory]，同时，需要定义复制和释放该消息的钩子函数，例如：
 
 ```
-extern void msg_3_release_hook(void *args);
-#define task_msg_release_hooks {\
-        {TASK_MSG_OS_REDAY, RT_NULL},   \
-        {TASK_MSG_NET_REDAY, RT_NULL},  \
-        {TASK_MSG_1, RT_NULL},          \
-        {TASK_MSG_2, RT_NULL},          \
-        {TASK_MSG_3, msg_3_release_hook},          \
-        {TASK_MSG_4, RT_NULL},          \
-        {TASK_MSG_5, RT_NULL},          \
-    }
+    extern void *msg_3_dump_hook(void *args);
+    extern void msg_3_release_hook(void *args);
+    #define task_msg_dump_release_hooks {\
+            {TASK_MSG_OS_REDAY,     RT_NULL, RT_NULL},          \
+            {TASK_MSG_NET_REDAY,    RT_NULL, RT_NULL},          \
+            {TASK_MSG_1,            RT_NULL, RT_NULL},          \
+            {TASK_MSG_2,            RT_NULL, RT_NULL},          \
+            {TASK_MSG_3,            msg_3_dump_hook, msg_3_release_hook},   \
+            {TASK_MSG_4,            RT_NULL, RT_NULL},          \
+            {TASK_MSG_5,            RT_NULL, RT_NULL},          \
+        }
 ```
 
 在用户的 *.c 文件中实现此钩子函数,例如:
 ```
+void *msg_3_dump_hook(void *args)
+{
+    struct msg_3_def *msg_3 = (struct msg_3_def *) args;
+    struct msg_3_def *r_msg_3 = rt_calloc(1, sizeof(struct msg_3_def));
+    if (r_msg_3 == RT_NULL)
+    {
+        return RT_NULL;
+    }
+
+    rt_memcpy((rt_uint8_t *) r_msg_3, (rt_uint8_t *) msg_3, sizeof(struct msg_3_def));
+    if (msg_3->buffer && msg_3->buffer_size > 0)
+    {
+        r_msg_3->buffer = rt_calloc(1, msg_3->buffer_size);
+        if (r_msg_3->buffer == RT_NULL)
+        {
+            rt_free(r_msg_3);
+            return RT_NULL;
+        }
+        rt_memcpy(r_msg_3->buffer, msg_3->buffer, msg_3->buffer_size);
+        r_msg_3->buffer_size = msg_3->buffer_size;
+    }
+
+    return r_msg_3;
+}
 void msg_3_release_hook(void *args)
 {
-    struct msg_3_def *msg_3 = (struct msg_3_def *)args;
-    if(msg_3->buffer)
+    struct msg_3_def *msg_3 = (struct msg_3_def *) args;
+    if (msg_3->buffer)
         rt_free(msg_3->buffer);
 }
 ```
@@ -122,7 +155,7 @@ void msg_3_release_hook(void *args)
 * 初始化
 
 ```
-task_msg_bus_init(512, 11, 10); //初始化消息总线(线程栈大小, 优先级, 时间片)
+task_msg_bus_init(); //初始化消息总线，已经导入到组件自动初始化函数INIT_COMPONENT_EXPORT(task_msg_bus_init)
 ```
 
 调用此函数将动态创建1个消息总线的消息分发线程
@@ -184,6 +217,7 @@ msg_3.buffer = rt_calloc(1, 32);
 rt_memcpy(msg_3.buffer, buffer_test, 32);
 msg_3.buffer_size = 32;
 task_msg_publish_obj(TASK_MSG_3, &msg_3, sizeof(struct msg_3_def));
+rt_free(msg_3.buffer);
 ```
 
 * 以线程阻塞的方式接收消息
@@ -278,7 +312,7 @@ static void msg_wait_any_thread_entry(void *params)
         {
             //可以做其它操作，在此期间发布的消息不会丢失
         }
-    }    
+    }
 }
 
 rt_thread_t t_wait_any = rt_thread_create("msg_wa", msg_wait_any_thread_entry, RT_NULL, 1024, 16, 10);
@@ -288,7 +322,7 @@ rt_thread_startup(t_wait_any);
 
 ## 4、注意事项
 
-* 不要在订阅消息的回调函数中执行耗时的操作，否则，请在单独的线程中，使用task_msg_wait_until来处理需要关注的消息。
+* 不要在订阅消息的回调函数中执行消耗资源的操作，否则，请在单独的线程中，使用task_msg_wait_until来处理需要关注的消息。
 
 * 如果使用了结构体数据类型的消息，同时在结构体中定义了指针，且动态分配了内存，一定要设置释放内存的钩子函数，否则会造成内存泄露。
 
