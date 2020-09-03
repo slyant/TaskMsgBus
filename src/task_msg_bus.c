@@ -862,7 +862,7 @@ int task_msg_bus_init(void)
     task_msg_bus_init_tag = RT_TRUE;
 
     rt_thread_t t = rt_thread_create("msg_bus", task_msg_bus_thread_entry,
-    RT_NULL, 512, TASK_MSG_THREAD_PRIORITY, 20);
+    RT_NULL, TASK_MSG_THREAD_STACK_SIZE, TASK_MSG_THREAD_PRIORITY, 20);
     if (t == RT_NULL)
     {
         LOG_E("task msg bus initialize failed! msg_bus_thread create failed!");
