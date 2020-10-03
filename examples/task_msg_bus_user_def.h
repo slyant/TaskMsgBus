@@ -26,14 +26,14 @@ enum task_msg_name{
         rt_uint8_t *buffer;
         rt_size_t buffer_size;
     };
-    extern void *msg_3_dump_hook(void *args);
+    extern void *msg_3_dup_hook(void *args);
     extern void msg_3_release_hook(void *args);
-    #define task_msg_dump_release_hooks {\
+    #define task_msg_dup_release_hooks {\
             {TASK_MSG_OS_REDAY,     RT_NULL, RT_NULL},          \
             {TASK_MSG_NET_REDAY,    RT_NULL, RT_NULL},          \
             {TASK_MSG_1,            RT_NULL, RT_NULL},          \
             {TASK_MSG_2,            RT_NULL, RT_NULL},          \
-            {TASK_MSG_3,            msg_3_dump_hook, msg_3_release_hook},   \
+            {TASK_MSG_3,            msg_3_dup_hook, msg_3_release_hook},   \
             {TASK_MSG_4,            RT_NULL, RT_NULL},          \
             {TASK_MSG_5,            RT_NULL, RT_NULL},          \
         }

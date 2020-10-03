@@ -61,10 +61,10 @@ struct task_msg_wait_node
 };
 typedef struct task_msg_wait_node *task_msg_wait_node_t;
 
-struct task_msg_dump_release_hook
+struct task_msg_dup_release_hook
 {
     enum task_msg_name msg_name;
-    void *(*dump)(void *args);
+    void *(*dup)(void *args);
     void (*release)(void *args);
 };
 

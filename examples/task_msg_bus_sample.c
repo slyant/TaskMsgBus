@@ -9,7 +9,7 @@
 #include <ulog.h>
 
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-void *msg_3_dump_hook(void *args)
+void *msg_3_dup_hook(void *args)
 {
     struct msg_3_def *msg_3 = (struct msg_3_def *) args;
     struct msg_3_def *r_msg_3 = rt_calloc(1, sizeof(struct msg_3_def));

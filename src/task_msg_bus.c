@@ -23,7 +23,7 @@ static struct rt_mutex sub_lock;
 static struct rt_mutex wt_lock;
 static rt_slist_t callback_slist_array[TASK_MSG_COUNT];
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-static struct task_msg_dump_release_hook dump_release_hooks[TASK_MSG_COUNT] = task_msg_dump_release_hooks;
+static struct task_msg_dup_release_hook dup_release_hooks[TASK_MSG_COUNT] = task_msg_dup_release_hooks;
 #endif
 static rt_slist_t msg_slist = RT_SLIST_OBJECT_INIT(msg_slist);
 static rt_slist_t msg_ref_slist = RT_SLIST_OBJECT_INIT(msg_ref_slist);
@@ -90,10 +90,10 @@ void task_msg_release(task_msg_args_t args)
                 if (item->args->msg_obj)
                 {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-                    if (dump_release_hooks[item->args->msg_name].release)
+                    if (dup_release_hooks[item->args->msg_name].release)
                     {
-                        RT_ASSERT(dump_release_hooks[item->args->msg_name].msg_name == item->args->msg_name);
-                        dump_release_hooks[item->args->msg_name].release(item->args->msg_obj);
+                        RT_ASSERT(dup_release_hooks[item->args->msg_name].msg_name == item->args->msg_name);
+                        dup_release_hooks[item->args->msg_name].release(item->args->msg_obj);
                     }
 #endif
                     rt_free(item->args->msg_obj);
@@ -404,10 +404,10 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_siz
     if (msg_obj && msg_size > 0)
     {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dump_release_hooks[msg_name].dump)
+        if (dup_release_hooks[msg_name].dup)
         {
-            RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-            msg_args->msg_obj = dump_release_hooks[msg_name].dump(msg_obj);
+            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+            msg_args->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
             if (msg_args->msg_obj == RT_NULL)
             {
                 rt_free(node);
@@ -481,10 +481,10 @@ static void msg_timing_timeout(void *params)
     if (msg_timing->msg_obj)
     {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dump_release_hooks[msg_timing->msg_name].release)
+        if (dup_release_hooks[msg_timing->msg_name].release)
         {
-            RT_ASSERT(dump_release_hooks[msg_timing->msg_name].msg_name == msg_timing->msg_name)
-            dump_release_hooks[msg_timing->msg_name].release(msg_timing->msg_obj);
+            RT_ASSERT(dup_release_hooks[msg_timing->msg_name].msg_name == msg_timing->msg_name)
+            dup_release_hooks[msg_timing->msg_name].release(msg_timing->msg_obj);
         }
 #endif
         rt_free(msg_timing->msg_obj);
@@ -515,10 +515,10 @@ rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg
     if (msg_obj && msg_size > 0)
     {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dump_release_hooks[msg_name].dump)
+        if (dup_release_hooks[msg_name].dup)
         {
-            RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-            msg_loop->msg_obj = dump_release_hooks[msg_name].dump(msg_obj);
+            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
             if (msg_loop->msg_obj == RT_NULL)
             {
                 rt_free(msg_loop);
@@ -555,10 +555,10 @@ rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg
         if (msg_loop->msg_obj)
         {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dump_release_hooks[msg_name].release)
+            if (dup_release_hooks[msg_name].release)
             {
-                RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-                dump_release_hooks[msg_name].release(msg_obj);
+                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+                dup_release_hooks[msg_name].release(msg_obj);
             }
 #endif
             rt_free(msg_loop->msg_obj);
@@ -573,10 +573,10 @@ rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg
         if (msg_loop->msg_obj)
         {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dump_release_hooks[msg_name].release)
+            if (dup_release_hooks[msg_name].release)
             {
-                RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-                dump_release_hooks[msg_name].release(msg_obj);
+                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+                dup_release_hooks[msg_name].release(msg_obj);
             }
 #endif
             rt_free(msg_loop->msg_obj);
@@ -660,10 +660,10 @@ rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enu
         if (msg_loop->msg_obj)
         {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dump_release_hooks[msg_name].release)
+            if (dup_release_hooks[msg_name].release)
             {
-                RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-                dump_release_hooks[msg_name].release(msg_obj);
+                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+                dup_release_hooks[msg_name].release(msg_obj);
             }
 #endif
             rt_free(msg_loop->msg_obj);
@@ -676,10 +676,10 @@ rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enu
     if (msg_obj && msg_size > 0)
     {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dump_release_hooks[msg_name].dump)
+        if (dup_release_hooks[msg_name].dup)
         {
-            RT_ASSERT(dump_release_hooks[msg_name].msg_name == msg_name);
-            msg_loop->msg_obj = dump_release_hooks[msg_name].dump(msg_obj);
+            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
             if (msg_loop->msg_obj == RT_NULL)
             {
                 return -RT_ENOMEM;
@@ -744,10 +744,10 @@ rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop)
         if (msg_loop->msg_obj)
         {
 #ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dump_release_hooks[msg_loop->msg_name].release)
+            if (dup_release_hooks[msg_loop->msg_name].release)
             {
-                RT_ASSERT(dump_release_hooks[msg_loop->msg_name].msg_name == msg_loop->msg_name);
-                dump_release_hooks[msg_loop->msg_name].release(msg_loop->msg_obj);
+                RT_ASSERT(dup_release_hooks[msg_loop->msg_name].msg_name == msg_loop->msg_name);
+                dup_release_hooks[msg_loop->msg_name].release(msg_loop->msg_obj);
             }
 #endif
             rt_free(msg_loop->msg_obj);
