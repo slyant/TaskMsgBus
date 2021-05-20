@@ -19,6 +19,7 @@ struct task_msg_args
 {
     enum task_msg_name msg_name;
     void *msg_obj;
+    rt_uint32_t msg_size;
 };
 typedef struct task_msg_args *task_msg_args_t;
 

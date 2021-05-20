@@ -400,6 +400,7 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_siz
     }
 
     msg_args->msg_name = msg_name;
+    msg_args->msg_size = msg_size;
     msg_args->msg_obj = RT_NULL;
     if (msg_obj && msg_size > 0)
     {
