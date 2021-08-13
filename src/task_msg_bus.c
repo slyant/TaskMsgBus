@@ -125,7 +125,7 @@ int task_msg_subscriber_create(enum task_msg_name msg_name)
     int id = subscriber_id++;
     char name[RT_NAME_MAX];
     rt_snprintf(name, RT_NAME_MAX, "sub_%d", id);
-    subscriber->sem = rt_sem_create(name, 0, RT_IPC_FLAG_FIFO);
+    subscriber->sem = rt_sem_create(name, 0, RT_IPC_FLAG_PRIO);
     if (subscriber->sem == RT_NULL)
     {
         rt_free(subscriber);
@@ -156,7 +156,7 @@ int task_msg_subscriber_create2(const enum task_msg_name *msg_name_list, rt_uint
     int id = subscriber_id++;
     char name[RT_NAME_MAX];
     rt_snprintf(name, RT_NAME_MAX, "sub_%d", id);
-    rt_sem_t sem = rt_sem_create(name, 0, RT_IPC_FLAG_FIFO);
+    rt_sem_t sem = rt_sem_create(name, 0, RT_IPC_FLAG_PRIO);
     if (sem == RT_NULL)
         return -1;
 
