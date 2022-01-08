@@ -275,7 +275,7 @@ rt_err_t task_msg_wait_until(int subscriber_id, rt_int32_t timeout_ms, struct ta
         return -RT_EINVAL;
     }
 
-    rst = rt_sem_take(sem, timeout_ms);
+    rst = rt_sem_take(sem, rt_tick_from_millisecond(timeout_ms));
     if (rst == RT_EOK)
     {
         rst = -RT_EINVAL;
