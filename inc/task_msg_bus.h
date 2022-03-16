@@ -78,6 +78,18 @@ struct task_msg_loop
 };
 typedef struct task_msg_loop *task_msg_loop_t;
 
+struct task_msg_timer_node
+{
+    enum task_msg_name msg_name;
+    rt_timer_t timer;
+    int re_count;
+    rt_uint32_t do_count;
+    rt_uint32_t delay_tick;
+    rt_uint32_t interval_tick;
+    rt_slist_t slist;
+};
+typedef struct task_msg_timer_node *task_msg_timer_node_t;
+
 rt_err_t task_msg_subscribe(enum task_msg_name msg_name, void (*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void (*callback)(task_msg_args_t msg_args));
 rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);

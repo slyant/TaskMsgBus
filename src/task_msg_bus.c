@@ -15,6 +15,8 @@
 #include <rtdbg.h>
 
 static rt_bool_t task_msg_bus_init_tag = RT_FALSE;
+static struct rt_mailbox msg_mb;
+static rt_uint8_t mbpool[128];
 static struct rt_semaphore msg_sem;
 static struct rt_mutex msg_lock;
 static struct rt_mutex msg_ref_lock;
@@ -29,6 +31,7 @@ static rt_slist_t msg_slist = RT_SLIST_OBJECT_INIT(msg_slist);
 static rt_slist_t msg_ref_slist = RT_SLIST_OBJECT_INIT(msg_ref_slist);
 static rt_slist_t msg_subscriber_slist = RT_SLIST_OBJECT_INIT(msg_subscriber_slist);
 static rt_slist_t msg_wait_slist = RT_SLIST_OBJECT_INIT(msg_wait_slist);
+static rt_slist_t msg_timer_slist = RT_SLIST_OBJECT_INIT(msg_timer_slist);
 static rt_uint32_t subscriber_id = 0;
 
 /**
@@ -372,7 +375,7 @@ rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void (*callback)(task
 }
 
 /**
- * Publish a message object.
+ * Publish a message object(shall not be used in ISR).
  *
  * @param msg_name: message name
  * @param msg_obj: message object
@@ -457,8 +460,44 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_siz
 
     return RT_EOK;
 }
+
 /**
- * Publish a text message.
+ * Publish a scheduled message(shall not be used in ISR).
+ * @param msg_name: message name
+ * @param delay_ms: delay time(ms)
+ * @param repeat: repeat count(repeat>0)
+ * @param interval_ms: interval time(ms)(interval_ms>100)
+ * @return error code
+ */
+rt_err_t task_msg_publish_scheduled(enum task_msg_name msg_name, rt_uint32_t delay_ms, int repeat,
+        rt_uint32_t interval_ms)
+{
+    if (task_msg_bus_init_tag == RT_FALSE || repeat == 0)
+        return -RT_EINVAL;
+
+    task_msg_timer_node_t node = rt_calloc(1, sizeof(struct task_msg_timer_node));
+    if (node == RT_NULL)
+    {
+        LOG_E("task msg publish failed! timer_node create failed!");
+        return -RT_ENOMEM;
+    }
+    node->delay_tick = rt_tick_from_millisecond(delay_ms);
+    node->interval_tick = rt_tick_from_millisecond(interval_ms);
+    node->msg_name = msg_name;
+    node->re_count = repeat;
+    char name[RT_NAME_MAX];
+    rt_snprintf(name, RT_NAME_MAX, "delay%d", msg_name);
+    node->timer = rt_timer_create(name, msg_timing_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
+    RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_ONE_SHOT);
+    node->do_count = 0;
+
+    rt_slist_init(&(node->slist));
+    rt_mutex_take(&msg_lock, RT_WAITING_FOREVER);
+    rt_slist_append(&msg_timer_slist, &(node->slist));
+    rt_mutex_release(&msg_lock);
+}
+/**
+ * Publish a text message(shall not be used in ISR).
  *
  * @param msg_name: message name
  * @param msg_text: message text
@@ -854,6 +893,7 @@ int task_msg_bus_init(void)
         return -RT_EBUSY;
 
     rt_sem_init(&msg_sem, "msg_sem", 0, RT_IPC_FLAG_FIFO);
+    rt_mb_init(&msg_mb, "msg_mb", &mbpool[0], sizeof(mbpool) / 4, RT_IPC_FLAG_FIFO);
     rt_mutex_init(&msg_lock, "msg_lock", RT_IPC_FLAG_FIFO);
     rt_mutex_init(&msg_ref_lock, "ref_lock", RT_IPC_FLAG_FIFO);
     rt_mutex_init(&cb_lock, "cb_lock", RT_IPC_FLAG_FIFO);
