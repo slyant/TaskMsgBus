@@ -80,8 +80,8 @@ typedef struct task_msg_loop *task_msg_loop_t;
 
 struct task_msg_timer_node
 {
-    enum task_msg_name msg_name;
-    rt_timer_t timer;
+    task_msg_args_t args;
+    struct rt_timer timer;
     int re_count;
     rt_uint32_t do_count;
     rt_uint32_t delay_tick;

@@ -19,6 +19,7 @@ static struct rt_mailbox msg_mb;
 static rt_uint8_t mbpool[128];
 static struct rt_semaphore msg_sem;
 static struct rt_mutex msg_lock;
+static struct rt_mutex msg_tlck;
 static struct rt_mutex msg_ref_lock;
 static struct rt_mutex cb_lock;
 static struct rt_mutex sub_lock;
@@ -462,39 +463,122 @@ rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_siz
 }
 
 /**
- * Publish a scheduled message(shall not be used in ISR).
+ * Append or update a scheduled message(shall not be used in ISR).
+ *
  * @param msg_name: message name
- * @param delay_ms: delay time(ms)
- * @param repeat: repeat count(repeat>0)
- * @param interval_ms: interval time(ms)(interval_ms>100)
+ * @param msg_obj: message object
+ * @param msg_size: message size
  * @return error code
  */
-rt_err_t task_msg_publish_scheduled(enum task_msg_name msg_name, rt_uint32_t delay_ms, int repeat,
-        rt_uint32_t interval_ms)
+rt_err_t task_msg_scheduled_append(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size)
 {
-    if (task_msg_bus_init_tag == RT_FALSE || repeat == 0)
+    if (task_msg_bus_init_tag == RT_FALSE)
         return -RT_EINVAL;
 
     task_msg_timer_node_t node = rt_calloc(1, sizeof(struct task_msg_timer_node));
     if (node == RT_NULL)
     {
-        LOG_E("task msg publish failed! timer_node create failed!");
+        LOG_E("task msg scheduled append failed! timer_node create failed!");
         return -RT_ENOMEM;
     }
-    node->delay_tick = rt_tick_from_millisecond(delay_ms);
-    node->interval_tick = rt_tick_from_millisecond(interval_ms);
-    node->msg_name = msg_name;
-    node->re_count = repeat;
-    char name[RT_NAME_MAX];
-    rt_snprintf(name, RT_NAME_MAX, "delay%d", msg_name);
-    node->timer = rt_timer_create(name, msg_timing_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
-    RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_ONE_SHOT);
-    node->do_count = 0;
 
+    task_msg_args_t msg_args = rt_calloc(1, sizeof(struct task_msg_args));
+    if (msg_args == RT_NULL)
+    {
+        rt_free(node);
+        LOG_E("task msg scheduled append failed! msg_args create failed!");
+        return -RT_ENOMEM;
+    }
+
+    msg_args->msg_name = msg_name;
+    msg_args->msg_size = msg_size;
+    msg_args->msg_obj = RT_NULL;
+    if (msg_obj && msg_size > 0)
+    {
+#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+        if (dup_release_hooks[msg_name].dup)
+        {
+            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+            msg_args->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
+            if (msg_args->msg_obj == RT_NULL)
+            {
+                rt_free(node);
+                rt_free(msg_args);
+                LOG_E("task msg scheduled append failed! msg_args create failed!");
+                return -RT_ENOMEM;
+            }
+        }
+        else
+        {
+            msg_args->msg_obj = rt_calloc(1, msg_size);
+            if (msg_args->msg_obj)
+            {
+                rt_memcpy(msg_args->msg_obj, msg_obj, msg_size);
+            }
+            else
+            {
+                rt_free(node);
+                rt_free(msg_args);
+                LOG_E("task msg scheduled append failed! msg_args create failed!");
+                return -RT_ENOMEM;
+            }
+        }
+#else
+        msg_args->msg_obj = rt_calloc(1, msg_size);
+        if (msg_args->msg_obj)
+        {
+            rt_memcpy(msg_args->msg_obj, msg_obj, msg_size);
+        }
+        else
+        {
+            rt_free(node);
+            rt_free(msg_args);
+            LOG_E("task msg scheduled append failed! msg_args create failed!");
+            return -RT_ENOMEM;
+        }
+#endif
+    }
+    node->args = msg_args;
     rt_slist_init(&(node->slist));
-    rt_mutex_take(&msg_lock, RT_WAITING_FOREVER);
+    rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
     rt_slist_append(&msg_timer_slist, &(node->slist));
-    rt_mutex_release(&msg_lock);
+    rt_mutex_release(&msg_tlck);
+
+    return RT_EOK;
+}
+
+static void scheduled_timeout_callback(task_msg_timer_node_t timer_node)
+{
+
+}
+
+rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, rt_int32_t delay_ms, rt_int32_t repeat,
+        rt_int32_t interval)
+{
+    task_msg_timer_node_t timer_node;
+    rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
+    rt_slist_for_each_entry(timer_node, &msg_timer_slist, slist)
+    {
+        if (timer_node->args->msg_name == msg_name)
+        {
+            char name[RT_NAME_MAX];
+            rt_snprintf(name, RT_NAME_MAX, "schtim%d", msg_name);
+            rt_timer_init(&(timer_node->timer), name, scheduled_timeout_callback, timer_node,
+                    rt_tick_from_millisecond(delay_ms), RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
+            break;
+        }
+    }
+    rt_mutex_release(&msg_tlck);
+}
+
+rt_err_t task_msg_scheduled_stop(enum task_msg_name msg_name)
+{
+
+}
+
+rt_err_t task_msg_scheduled_delete(enum task_msg_name msg_name)
+{
+
 }
 /**
  * Publish a text message(shall not be used in ISR).
@@ -895,6 +979,7 @@ int task_msg_bus_init(void)
     rt_sem_init(&msg_sem, "msg_sem", 0, RT_IPC_FLAG_FIFO);
     rt_mb_init(&msg_mb, "msg_mb", &mbpool[0], sizeof(mbpool) / 4, RT_IPC_FLAG_FIFO);
     rt_mutex_init(&msg_lock, "msg_lock", RT_IPC_FLAG_FIFO);
+    rt_mutex_init(&msg_tlck, "msg_tlck", RT_IPC_FLAG_FIFO);
     rt_mutex_init(&msg_ref_lock, "ref_lock", RT_IPC_FLAG_FIFO);
     rt_mutex_init(&cb_lock, "cb_lock", RT_IPC_FLAG_FIFO);
     rt_mutex_init(&wt_lock, "wt_lock", RT_IPC_FLAG_FIFO);
