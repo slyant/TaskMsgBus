@@ -82,9 +82,9 @@ struct task_msg_timer_node
 {
     task_msg_args_t args;
     struct rt_timer timer;
-    int re_count;
+    rt_uint32_t repeat;
     rt_uint32_t do_count;
-    rt_uint32_t delay_tick;
+    rt_bool_t stop;
     rt_uint32_t interval_tick;
     rt_slist_t slist;
 };

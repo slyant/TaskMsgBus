@@ -547,38 +547,105 @@ rt_err_t task_msg_scheduled_append(enum task_msg_name msg_name, void *msg_obj, r
     return RT_EOK;
 }
 
-static void scheduled_timeout_callback(task_msg_timer_node_t timer_node)
+static void scheduled_timeout_callback(void *params)
 {
-
+    task_msg_timer_node_t item = (task_msg_timer_node_t) params;
+    rt_ubase_t msg_name = (rt_ubase_t) (item->args->msg_name);
+//    item->do_count++;
+//    if (!item->stop || item->repeat == 0 || item->do_count < item->repeat)
+    rt_mb_send(&msg_mb, msg_name);
 }
 
-rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, rt_int32_t delay_ms, rt_int32_t repeat,
-        rt_int32_t interval)
+rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, int delay_ms, rt_uint32_t repeat, int interval_ms)
 {
-    task_msg_timer_node_t timer_node;
+    rt_bool_t msg_exist = RT_FALSE;
+    task_msg_timer_node_t item;
     rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
-    rt_slist_for_each_entry(timer_node, &msg_timer_slist, slist)
+    rt_slist_for_each_entry(item, &msg_timer_slist, slist)
     {
-        if (timer_node->args->msg_name == msg_name)
+        if (item->args->msg_name == msg_name)
         {
-            char name[RT_NAME_MAX];
-            rt_snprintf(name, RT_NAME_MAX, "schtim%d", msg_name);
-            rt_timer_init(&(timer_node->timer), name, scheduled_timeout_callback, timer_node,
-                    rt_tick_from_millisecond(delay_ms), RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
+            msg_exist = RT_TRUE;
+            if (rt_object_get_type(&(item->timer.parent)) != RT_Object_Class_Timer)
+            {
+                char name[RT_NAME_MAX];
+                rt_snprintf(name, RT_NAME_MAX, "schtim%d", msg_name);
+                rt_timer_init(&(item->timer), name, scheduled_timeout_callback, item,
+                        rt_tick_from_millisecond(delay_ms), RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
+            }
             break;
         }
     }
     rt_mutex_release(&msg_tlck);
+    if (msg_exist)
+    {
+        item->interval_tick = rt_tick_from_millisecond(interval_ms);
+        item->repeat = repeat;
+        item->do_count = 0;
+        rt_err_t res = rt_timer_start(&(item->timer));
+        item->stop = RT_FALSE;
+        return res;
+    }
+    else
+    {
+        rt_err_t res = task_msg_scheduled_append(msg_name, RT_NULL, 0);
+        if (res)
+            task_msg_scheduled_start(msg_name, delay_ms, repeat, interval_ms);
+        return res;
+    }
 }
 
 rt_err_t task_msg_scheduled_stop(enum task_msg_name msg_name)
 {
-
+    rt_err_t res = RT_EOK;
+    task_msg_timer_node_t item;
+    rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
+    rt_slist_for_each_entry(item, &msg_timer_slist, slist)
+    {
+        if (item->args->msg_name == msg_name)
+        {
+            if (rt_object_get_type(&(item->timer.parent)) == RT_Object_Class_Timer)
+            {
+                res = rt_timer_stop(&(item->timer));
+                item->stop = RT_TRUE;
+            }
+            break;
+        }
+    }
+    rt_mutex_release(&msg_tlck);
+    return res;
 }
 
 rt_err_t task_msg_scheduled_delete(enum task_msg_name msg_name)
 {
-
+    task_msg_timer_node_t item;
+    rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
+    rt_slist_for_each_entry(item, &msg_timer_slist, slist)
+    {
+        if (item->args->msg_name == msg_name)
+        {
+            rt_slist_remove(&msg_timer_slist, &(item->slist));
+            if (item->args->msg_obj)
+            {
+#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+                if (dup_release_hooks[item->args->msg_name].release)
+                {
+                    RT_ASSERT(dup_release_hooks[item->args->msg_name].msg_name == item->args->msg_name);
+                    dup_release_hooks[item->args->msg_name].release(item->args->msg_obj);
+                }
+#endif
+                rt_free(item->args->msg_obj);
+            }
+            rt_free(item->args);
+            if (rt_object_get_type(&(item->timer.parent)) == RT_Object_Class_Timer)
+            {
+                rt_timer_detach(&(item->timer));
+            }
+            rt_free(item);
+            break;
+        }
+    }
+    rt_mutex_release(&msg_tlck);
 }
 /**
  * Publish a text message(shall not be used in ISR).
