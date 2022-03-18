@@ -551,13 +551,12 @@ static void scheduled_timeout_callback(void *params)
 {
     task_msg_timer_node_t item = (task_msg_timer_node_t) params;
     rt_ubase_t msg_name = (rt_ubase_t) (item->args->msg_name);
-//    item->do_count++;
-//    if (!item->stop || item->repeat == 0 || item->do_count < item->repeat)
     rt_mb_send(&msg_mb, msg_name);
 }
 
 rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, int delay_ms, rt_uint32_t repeat, int interval_ms)
 {
+    rt_err_t res;
     rt_bool_t msg_exist = RT_FALSE;
     task_msg_timer_node_t item;
     rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
@@ -570,29 +569,27 @@ rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, int delay_ms, rt_
             {
                 char name[RT_NAME_MAX];
                 rt_snprintf(name, RT_NAME_MAX, "schtim%d", msg_name);
-                rt_timer_init(&(item->timer), name, scheduled_timeout_callback, item,
-                        rt_tick_from_millisecond(delay_ms), RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
+                rt_timer_init(&(item->timer), name, scheduled_timeout_callback, item, rt_tick_from_millisecond(delay_ms),
+                RT_TIMER_FLAG_ONE_SHOT | RT_TIMER_FLAG_SOFT_TIMER);
             }
+            item->interval = rt_tick_from_millisecond(interval_ms);
+            item->repeat = repeat;
+            item->do_count = 0;
+            res = rt_timer_start(&(item->timer));
+            item->stop = RT_FALSE;
             break;
         }
     }
     rt_mutex_release(&msg_tlck);
-    if (msg_exist)
+    if (!msg_exist)
     {
-        item->interval_tick = rt_tick_from_millisecond(interval_ms);
-        item->repeat = repeat;
-        item->do_count = 0;
-        rt_err_t res = rt_timer_start(&(item->timer));
-        item->stop = RT_FALSE;
-        return res;
-    }
-    else
-    {
-        rt_err_t res = task_msg_scheduled_append(msg_name, RT_NULL, 0);
+        res = task_msg_scheduled_append(msg_name, RT_NULL, 0);
         if (res)
-            task_msg_scheduled_start(msg_name, delay_ms, repeat, interval_ms);
-        return res;
+        {
+            res = task_msg_scheduled_start(msg_name, delay_ms, repeat, interval_ms);
+        }
     }
+    return res;
 }
 
 rt_err_t task_msg_scheduled_stop(enum task_msg_name msg_name)
@@ -665,291 +662,291 @@ rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text)
     return task_msg_publish_obj(msg_name, msg_obj, args_size);
 }
 
-static void msg_timing_timeout(void *params)
-{
-    task_msg_loop_t msg_timing = (task_msg_loop_t) params;
-    task_msg_publish_obj(msg_timing->msg_name, msg_timing->msg_obj, msg_timing->msg_size);
-    if (msg_timing->msg_obj)
-    {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dup_release_hooks[msg_timing->msg_name].release)
-        {
-            RT_ASSERT(dup_release_hooks[msg_timing->msg_name].msg_name == msg_timing->msg_name)
-            dup_release_hooks[msg_timing->msg_name].release(msg_timing->msg_obj);
-        }
-#endif
-        rt_free(msg_timing->msg_obj);
-        msg_timing->msg_obj = RT_NULL;
-    }
-    rt_timer_delete(msg_timing->timer);
-    msg_timing->timer = RT_NULL;
-    rt_free(msg_timing);
-}
-/**
- * Publish a delay message object.
- * @param delay_ms: delay ms
- * @param msg_name: message name
- * @param msg_obj: message object
- * @param msg_size: message size
- * @return error code
- */
-rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
-        rt_size_t msg_size)
-{
-    task_msg_loop_t msg_loop = rt_calloc(1, sizeof(struct task_msg_loop));
-    if (msg_loop == RT_NULL)
-        return -RT_ENOMEM;
-
-    msg_loop->msg_name = msg_name;
-    msg_loop->msg_obj = RT_NULL;
-    msg_loop->msg_size = 0;
-    if (msg_obj && msg_size > 0)
-    {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dup_release_hooks[msg_name].dup)
-        {
-            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
-            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
-            if (msg_loop->msg_obj == RT_NULL)
-            {
-                rt_free(msg_loop);
-                return -RT_ENOMEM;
-            }
-        }
-        else
-        {
-            msg_loop->msg_obj = rt_calloc(1, msg_size);
-            if (msg_loop->msg_obj == RT_NULL)
-            {
-                rt_free(msg_loop);
-                return -RT_ENOMEM;
-            }
-            rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
-        }
-#else
-        msg_loop->msg_obj = rt_calloc(1, msg_size);
-        if (msg_loop->msg_obj == RT_NULL)
-        {
-            rt_free(msg_loop);
-            return -RT_ENOMEM;
-        }
-        rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
-#endif
-        msg_loop->msg_size = msg_size;
-    }
-    char name[RT_NAME_MAX];
-    rt_snprintf(name, RT_NAME_MAX, "delay%d", msg_name);
-    msg_loop->timer = rt_timer_create(name, msg_timing_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
-    RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_ONE_SHOT);
-    if (msg_loop->timer == RT_NULL)
-    {
-        if (msg_loop->msg_obj)
-        {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dup_release_hooks[msg_name].release)
-            {
-                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
-                dup_release_hooks[msg_name].release(msg_obj);
-            }
-#endif
-            rt_free(msg_loop->msg_obj);
-        }
-        rt_free(msg_loop);
-        return -RT_ENOMEM;
-    }
-
-    rt_err_t rst = rt_timer_start(msg_loop->timer);
-    if (rst != RT_EOK)
-    {
-        if (msg_loop->msg_obj)
-        {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dup_release_hooks[msg_name].release)
-            {
-                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
-                dup_release_hooks[msg_name].release(msg_obj);
-            }
-#endif
-            rt_free(msg_loop->msg_obj);
-        }
-        rt_timer_delete(msg_loop->timer);
-        rt_free(msg_loop);
-    }
-
-    return rst;
-}
-/**
- * Publish a delay text message.
- * @param delay_ms: delay ms
- * @param msg_name: message name
- * @param msg_text: message text
- * @return error code
- */
-rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text)
-{
-    void *msg_obj = (void *) msg_text;
-    rt_size_t args_size = 0;
-    if (msg_obj)
-    {
-        args_size = rt_strlen(msg_text) + 1;
-    }
-    return task_msg_delay_publish_obj(delay_ms, msg_name, msg_obj, args_size);
-}
-
-static void msg_loop_timeout(void *params)
-{
-    task_msg_loop_t msg_loop = (task_msg_loop_t) params;
-    task_msg_publish_obj(msg_loop->msg_name, msg_loop->msg_obj, msg_loop->msg_size);
-}
-/**
- * create a loop message
- * @return error code
- */
-task_msg_loop_t task_msg_loop_create(void)
-{
-    task_msg_loop_t msg_loop = rt_calloc(1, sizeof(struct task_msg_loop));
-    if (msg_loop == RT_NULL)
-        return RT_NULL;
-
-    msg_loop->timer = RT_NULL;
-    msg_loop->msg_obj = RT_NULL;
-    msg_loop->msg_size = 0;
-
-    return msg_loop;
-}
-/**
- * start a loop message
- * @param msg_loop
- * @param delay_ms
- * @param msg_name
- * @param msg_obj
- * @param msg_size
- * @return error code
- */
-rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
-        rt_size_t msg_size)
-{
-    if (msg_loop == RT_NULL)
-        return -RT_EEMPTY;
-
-    if (msg_loop->timer == RT_NULL)
-    {
-        char name[RT_NAME_MAX];
-        rt_snprintf(name, RT_NAME_MAX, "loop%d", msg_name);
-        msg_loop->timer = rt_timer_create(name, msg_loop_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
-        RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_PERIODIC);
-        if (msg_loop->timer == RT_NULL)
-        {
-            return -RT_ENOMEM;
-        }
-    }
-    else
-    {
-        rt_timer_stop(msg_loop->timer);
-        rt_tick_t delay_tick = rt_tick_from_millisecond(delay_ms);
-        rt_timer_control(msg_loop->timer, RT_TIMER_CTRL_SET_TIME, &delay_tick);
-        if (msg_loop->msg_obj)
-        {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dup_release_hooks[msg_name].release)
-            {
-                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
-                dup_release_hooks[msg_name].release(msg_obj);
-            }
-#endif
-            rt_free(msg_loop->msg_obj);
-        }
-    }
-    msg_loop->msg_name = msg_name;
-    msg_loop->msg_obj = RT_NULL;
-    msg_loop->msg_size = 0;
-
-    if (msg_obj && msg_size > 0)
-    {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-        if (dup_release_hooks[msg_name].dup)
-        {
-            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
-            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
-            if (msg_loop->msg_obj == RT_NULL)
-            {
-                return -RT_ENOMEM;
-            }
-        }
-        else
-        {
-            msg_loop->msg_obj = rt_calloc(1, msg_size);
-            if (msg_loop->msg_obj == RT_NULL)
-            {
-                return -RT_ENOMEM;
-            }
-            rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
-        }
-#else
-        msg_loop->msg_obj = rt_calloc(1, msg_size);
-        if (msg_loop->msg_obj == RT_NULL)
-        {
-            return -RT_ENOMEM;
-        }
-        rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
-#endif
-        msg_loop->msg_size = msg_size;
-    }
-
-    return rt_timer_start(msg_loop->timer);
-}
-
-/**
- * stop a loop message
- * @param msg_loop
- * @return error code
- */
-rt_err_t task_msg_loop_stop(task_msg_loop_t msg_loop)
-{
-    if (msg_loop == RT_NULL || msg_loop->timer == RT_NULL)
-        return -RT_EEMPTY;
-
-    return rt_timer_stop(msg_loop->timer);
-}
-/**
- * delete a loop message
- * @param msg_loop
- * @return error code
- */
-rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop)
-{
-    rt_err_t rst;
-
-    if (msg_loop == RT_NULL)
-        return -RT_EEMPTY;
-
-    if (msg_loop->timer)
-    {
-        rt_timer_stop(msg_loop->timer);
-        rst = rt_timer_delete(msg_loop->timer);
-        if (rst == RT_EOK)
-            msg_loop->timer = RT_NULL;
-    }
-    if (rst == RT_EOK)
-    {
-        if (msg_loop->msg_obj)
-        {
-#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
-            if (dup_release_hooks[msg_loop->msg_name].release)
-            {
-                RT_ASSERT(dup_release_hooks[msg_loop->msg_name].msg_name == msg_loop->msg_name);
-                dup_release_hooks[msg_loop->msg_name].release(msg_loop->msg_obj);
-            }
-#endif
-            rt_free(msg_loop->msg_obj);
-        }
-        msg_loop->msg_obj = RT_NULL;
-        msg_loop->msg_size = 0;
-        rt_free(msg_loop);
-    }
-
-    return rst;
-}
+//static void msg_timing_timeout(void *params)
+//{
+//    task_msg_loop_t msg_timing = (task_msg_loop_t) params;
+//    task_msg_publish_obj(msg_timing->msg_name, msg_timing->msg_obj, msg_timing->msg_size);
+//    if (msg_timing->msg_obj)
+//    {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//        if (dup_release_hooks[msg_timing->msg_name].release)
+//        {
+//            RT_ASSERT(dup_release_hooks[msg_timing->msg_name].msg_name == msg_timing->msg_name)
+//            dup_release_hooks[msg_timing->msg_name].release(msg_timing->msg_obj);
+//        }
+//#endif
+//        rt_free(msg_timing->msg_obj);
+//        msg_timing->msg_obj = RT_NULL;
+//    }
+//    rt_timer_delete(msg_timing->timer);
+//    msg_timing->timer = RT_NULL;
+//    rt_free(msg_timing);
+//}
+///**
+// * Publish a delay message object.
+// * @param delay_ms: delay ms
+// * @param msg_name: message name
+// * @param msg_obj: message object
+// * @param msg_size: message size
+// * @return error code
+// */
+//rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
+//        rt_size_t msg_size)
+//{
+//    task_msg_loop_t msg_loop = rt_calloc(1, sizeof(struct task_msg_loop));
+//    if (msg_loop == RT_NULL)
+//        return -RT_ENOMEM;
+//
+//    msg_loop->msg_name = msg_name;
+//    msg_loop->msg_obj = RT_NULL;
+//    msg_loop->msg_size = 0;
+//    if (msg_obj && msg_size > 0)
+//    {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//        if (dup_release_hooks[msg_name].dup)
+//        {
+//            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+//            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
+//            if (msg_loop->msg_obj == RT_NULL)
+//            {
+//                rt_free(msg_loop);
+//                return -RT_ENOMEM;
+//            }
+//        }
+//        else
+//        {
+//            msg_loop->msg_obj = rt_calloc(1, msg_size);
+//            if (msg_loop->msg_obj == RT_NULL)
+//            {
+//                rt_free(msg_loop);
+//                return -RT_ENOMEM;
+//            }
+//            rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
+//        }
+//#else
+//        msg_loop->msg_obj = rt_calloc(1, msg_size);
+//        if (msg_loop->msg_obj == RT_NULL)
+//        {
+//            rt_free(msg_loop);
+//            return -RT_ENOMEM;
+//        }
+//        rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
+//#endif
+//        msg_loop->msg_size = msg_size;
+//    }
+//    char name[RT_NAME_MAX];
+//    rt_snprintf(name, RT_NAME_MAX, "delay%d", msg_name);
+//    msg_loop->timer = rt_timer_create(name, msg_timing_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
+//    RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_ONE_SHOT);
+//    if (msg_loop->timer == RT_NULL)
+//    {
+//        if (msg_loop->msg_obj)
+//        {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//            if (dup_release_hooks[msg_name].release)
+//            {
+//                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+//                dup_release_hooks[msg_name].release(msg_obj);
+//            }
+//#endif
+//            rt_free(msg_loop->msg_obj);
+//        }
+//        rt_free(msg_loop);
+//        return -RT_ENOMEM;
+//    }
+//
+//    rt_err_t rst = rt_timer_start(msg_loop->timer);
+//    if (rst != RT_EOK)
+//    {
+//        if (msg_loop->msg_obj)
+//        {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//            if (dup_release_hooks[msg_name].release)
+//            {
+//                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+//                dup_release_hooks[msg_name].release(msg_obj);
+//            }
+//#endif
+//            rt_free(msg_loop->msg_obj);
+//        }
+//        rt_timer_delete(msg_loop->timer);
+//        rt_free(msg_loop);
+//    }
+//
+//    return rst;
+//}
+///**
+// * Publish a delay text message.
+// * @param delay_ms: delay ms
+// * @param msg_name: message name
+// * @param msg_text: message text
+// * @return error code
+// */
+//rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text)
+//{
+//    void *msg_obj = (void *) msg_text;
+//    rt_size_t args_size = 0;
+//    if (msg_obj)
+//    {
+//        args_size = rt_strlen(msg_text) + 1;
+//    }
+//    return task_msg_delay_publish_obj(delay_ms, msg_name, msg_obj, args_size);
+//}
+//
+//static void msg_loop_timeout(void *params)
+//{
+//    task_msg_loop_t msg_loop = (task_msg_loop_t) params;
+//    task_msg_publish_obj(msg_loop->msg_name, msg_loop->msg_obj, msg_loop->msg_size);
+//}
+///**
+// * create a loop message
+// * @return error code
+// */
+//task_msg_loop_t task_msg_loop_create(void)
+//{
+//    task_msg_loop_t msg_loop = rt_calloc(1, sizeof(struct task_msg_loop));
+//    if (msg_loop == RT_NULL)
+//        return RT_NULL;
+//
+//    msg_loop->timer = RT_NULL;
+//    msg_loop->msg_obj = RT_NULL;
+//    msg_loop->msg_size = 0;
+//
+//    return msg_loop;
+//}
+///**
+// * start a loop message
+// * @param msg_loop
+// * @param delay_ms
+// * @param msg_name
+// * @param msg_obj
+// * @param msg_size
+// * @return error code
+// */
+//rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj,
+//        rt_size_t msg_size)
+//{
+//    if (msg_loop == RT_NULL)
+//        return -RT_EEMPTY;
+//
+//    if (msg_loop->timer == RT_NULL)
+//    {
+//        char name[RT_NAME_MAX];
+//        rt_snprintf(name, RT_NAME_MAX, "loop%d", msg_name);
+//        msg_loop->timer = rt_timer_create(name, msg_loop_timeout, msg_loop, rt_tick_from_millisecond(delay_ms),
+//        RT_TIMER_FLAG_SOFT_TIMER | RT_TIMER_FLAG_PERIODIC);
+//        if (msg_loop->timer == RT_NULL)
+//        {
+//            return -RT_ENOMEM;
+//        }
+//    }
+//    else
+//    {
+//        rt_timer_stop(msg_loop->timer);
+//        rt_tick_t delay_tick = rt_tick_from_millisecond(delay_ms);
+//        rt_timer_control(msg_loop->timer, RT_TIMER_CTRL_SET_TIME, &delay_tick);
+//        if (msg_loop->msg_obj)
+//        {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//            if (dup_release_hooks[msg_name].release)
+//            {
+//                RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+//                dup_release_hooks[msg_name].release(msg_obj);
+//            }
+//#endif
+//            rt_free(msg_loop->msg_obj);
+//        }
+//    }
+//    msg_loop->msg_name = msg_name;
+//    msg_loop->msg_obj = RT_NULL;
+//    msg_loop->msg_size = 0;
+//
+//    if (msg_obj && msg_size > 0)
+//    {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//        if (dup_release_hooks[msg_name].dup)
+//        {
+//            RT_ASSERT(dup_release_hooks[msg_name].msg_name == msg_name);
+//            msg_loop->msg_obj = dup_release_hooks[msg_name].dup(msg_obj);
+//            if (msg_loop->msg_obj == RT_NULL)
+//            {
+//                return -RT_ENOMEM;
+//            }
+//        }
+//        else
+//        {
+//            msg_loop->msg_obj = rt_calloc(1, msg_size);
+//            if (msg_loop->msg_obj == RT_NULL)
+//            {
+//                return -RT_ENOMEM;
+//            }
+//            rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
+//        }
+//#else
+//        msg_loop->msg_obj = rt_calloc(1, msg_size);
+//        if (msg_loop->msg_obj == RT_NULL)
+//        {
+//            return -RT_ENOMEM;
+//        }
+//        rt_memcpy(msg_loop->msg_obj, msg_obj, msg_size);
+//#endif
+//        msg_loop->msg_size = msg_size;
+//    }
+//
+//    return rt_timer_start(msg_loop->timer);
+//}
+//
+///**
+// * stop a loop message
+// * @param msg_loop
+// * @return error code
+// */
+//rt_err_t task_msg_loop_stop(task_msg_loop_t msg_loop)
+//{
+//    if (msg_loop == RT_NULL || msg_loop->timer == RT_NULL)
+//        return -RT_EEMPTY;
+//
+//    return rt_timer_stop(msg_loop->timer);
+//}
+///**
+// * delete a loop message
+// * @param msg_loop
+// * @return error code
+// */
+//rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop)
+//{
+//    rt_err_t rst;
+//
+//    if (msg_loop == RT_NULL)
+//        return -RT_EEMPTY;
+//
+//    if (msg_loop->timer)
+//    {
+//        rt_timer_stop(msg_loop->timer);
+//        rst = rt_timer_delete(msg_loop->timer);
+//        if (rst == RT_EOK)
+//            msg_loop->timer = RT_NULL;
+//    }
+//    if (rst == RT_EOK)
+//    {
+//        if (msg_loop->msg_obj)
+//        {
+//#ifdef TASK_MSG_USING_DYNAMIC_MEMORY
+//            if (dup_release_hooks[msg_loop->msg_name].release)
+//            {
+//                RT_ASSERT(dup_release_hooks[msg_loop->msg_name].msg_name == msg_loop->msg_name);
+//                dup_release_hooks[msg_loop->msg_name].release(msg_loop->msg_obj);
+//            }
+//#endif
+//            rt_free(msg_loop->msg_obj);
+//        }
+//        msg_loop->msg_obj = RT_NULL;
+//        msg_loop->msg_size = 0;
+//        rt_free(msg_loop);
+//    }
+//
+//    return rst;
+//}
 /**
  * Initialize the callback slist array.
  */
@@ -1030,6 +1027,65 @@ static void task_msg_bus_thread_entry(void *params)
     }
 }
 
+static void task_msg_mb_thread_entry(void *params)
+{
+    rt_ubase_t msg_name;
+    while (1)
+    {
+        if (rt_mb_recv(&msg_mb, &msg_name, RT_WAITING_FOREVER) == RT_EOK)
+        {
+            enum task_msg_name name = (enum task_msg_name) msg_name;
+            task_msg_timer_node_t item;
+            rt_mutex_take(&msg_tlck, RT_WAITING_FOREVER);
+            rt_slist_for_each_entry(item, &msg_timer_slist, slist)
+            {
+                if (item->args->msg_name == name)
+                {
+                    rt_bool_t restart = RT_FALSE;
+                    task_msg_publish_obj(name, item->args->msg_obj, item->args->msg_size);
+                    if (item->stop)
+                    { //停止
+                        restart = RT_FALSE;
+                    }
+                    else if (item->repeat == 0)
+                    { //无限重复
+                        restart = RT_TRUE;
+                    }
+                    else
+                    {
+                        item->do_count++;
+                        if (item->do_count < item->repeat)
+                        {
+                            restart = RT_TRUE;
+                        }
+                        else
+                        {
+                            restart = RT_FALSE;
+                        }
+                    }
+                    if (restart)
+                    {
+                        if(item->do_count==1)
+                        {
+                            rt_timer_control(&(item->timer), RT_TIMER_CTRL_SET_TIME, &(item->interval));
+                            rt_timer_control(&(item->timer), RT_TIMER_CTRL_SET_PERIODIC, RT_NULL);
+                        }
+                        rt_timer_start(&(item->timer));
+                        item->stop = RT_FALSE;
+                    }
+                    else
+                    {
+                        rt_timer_stop(&(item->timer));
+                        item->stop = RT_TRUE;
+                    }
+                    break;
+                }
+            }
+            rt_mutex_release(&msg_tlck);
+        }
+    }
+}
+
 /**
  * Initialize message bus components.
  *
@@ -1054,20 +1110,31 @@ int task_msg_bus_init(void)
     task_msg_callback_init();
     task_msg_bus_init_tag = RT_TRUE;
 
-    rt_thread_t t = rt_thread_create("msg_bus", task_msg_bus_thread_entry,
-    RT_NULL, TASK_MSG_THREAD_STACK_SIZE, TASK_MSG_THREAD_PRIORITY, 20);
-    if (t == RT_NULL)
+    rt_thread_t t1 = rt_thread_create("msg_bus", task_msg_bus_thread_entry,
+    RT_NULL, TASK_MSG_THREAD_STACK_SIZE, TASK_MSG_THREAD_PRIORITY, 80);
+    if (t1 == RT_NULL)
     {
         LOG_E("task msg bus initialize failed! msg_bus_thread create failed!");
         return -RT_ENOMEM;
     }
+    rt_thread_t t2 = rt_thread_create("msg_mb", task_msg_mb_thread_entry,
+    RT_NULL, TASK_MSG_THREAD_STACK_SIZE, TASK_MSG_THREAD_PRIORITY, 20);
+    if (t2 == RT_NULL)
+    {
+        LOG_E("task msg bus initialize failed! msg_mb_thread create failed!");
+        return -RT_ENOMEM;
+    }
 
-    rt_err_t rst = rt_thread_startup(t);
+    rt_err_t rst = rt_thread_startup(t1);
     if (rst == RT_EOK)
     {
-        LOG_I("task msg bus initialize success!");
+        rst = rt_thread_startup(t2);
+        if (rst == RT_EOK)
+        {
+            LOG_I("task msg bus initialize success!");
+        }
     }
-    else
+    if (rst != RT_EOK)
     {
         LOG_E("task msg bus initialize failed! msg_bus thread startup failed(%d)", rst);
     }
