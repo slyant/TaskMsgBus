@@ -50,7 +50,6 @@ RT-Thread online packages
 | rt_err_t task_msg_unsubscribe(enum task_msg_name msg_name, void(*callback)(task_msg_args_t msg_args)); | 取消订阅消息 |
 | rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);  | 发布text/json消息 |
 | rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 发布任意数据类型消息 |
-| rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text); | 延时发布text/json消息 |
 | rt_err_t task_msg_scheduled_append(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 添加一个计划消息，但不发送 |
 | rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, int delay_ms, rt_uint32_t repeat, int interval_ms); | 启动一个计划消息（如果之前没有添加过，将自动添加一个无消息体的计划消息）：当repeat=0时，先延时delay_ms毫秒发送1次消息后，再按interval_ms毫秒间隔周期性循环发送消息；当repeat=1时，interval_ms参数无效，将延时delay_ms毫秒发送1次消息；当repeat>1时，先延时delay_ms毫秒发送1次消息后，再按interval_ms毫秒间隔周期性循环发送(repeat-1)次消息|
 | rt_err_t task_msg_scheduled_restart(enum task_msg_name msg_name); | 重新启动一个计划消息（将重置定时器） |
