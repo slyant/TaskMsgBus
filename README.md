@@ -2,7 +2,7 @@
 
 ## 1、介绍
 
-这个软件包实现了基于RT-Thread的消息总线，可以轻松的实现线程间的同步和消息收发，支持文本、数字、结构体等任意复杂的消息类型的发送和接收。当有多个线程订阅消费消息时，不会增加内存的使用，通过设置消息释放的钩子函数，实现内存的自动回收。
+这个软件包实现了基于RT-Thread的消息总线，可以轻松的实现线程间的同步和消息收发，支持文本、数字、结构体等任意复杂的消息类型的发送和接收。当有多个线程订阅消费消息时，不会增加内存的使用，如果消息对象使用了动态内存地址引用，通过设置消息释放的钩子函数，可实现内存的自动回收。
 
 ### 1.1 目录结构
 
@@ -17,7 +17,7 @@ TaskMsgBus package 遵循 Apache license v2.0 许可，详见 `LICENSE` 文件�
 
 ### 1.3 依赖
 
-无。当开启Json消息类型支持时，会自动选中cJSON软件包。
+无。
 
 ## 2、如何打开 TaskMsgBus package
 
@@ -28,15 +28,14 @@ RT-Thread online packages
     system packages --->
         [*]TaskMsgBus: For sending and receiving json/text/object messages between threads based on RT-Thread
         TaskMsgBus --->
-            task message thread stack size [256]
+            task message thread stack size [384]
             task message thread priority [5]
             [*]task msg name define in user file 'task_msg_bus_user_def.h'
-            [*]task msg format using json
             [*]task msg object using dynamic memory
             [*]Enable TaskMsgBus Sample
 
 ```
-
+或者直接下载源码，添加到项目中编译即可
 ## 3、使用 TaskMsgBus package
 
 按上述方法打开TaskMsgBus package，启用示例，编译工程，即可在控制台看到示例运行结果:
@@ -52,14 +51,14 @@ RT-Thread online packages
 | rt_err_t task_msg_publish(enum task_msg_name msg_name, const char *msg_text);  | 发布text/json消息 |
 | rt_err_t task_msg_publish_obj(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 发布任意数据类型消息 |
 | rt_err_t task_msg_delay_publish(rt_uint32_t delay_ms, enum task_msg_name msg_name, const char *msg_text); | 延时发布text/json消息 |
-| rt_err_t task_msg_delay_publish_obj(rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 延时发布任意数据类型消息 |
-| task_msg_loop_t task_msg_loop_create(void); | 创建定时循环消息对象，返回定时循环消息对象句柄 |
-| rt_err_t task_msg_loop_delete(task_msg_loop_t msg_loop); | 停止并删除定时循环消息对象 |
-| rt_err_t task_msg_loop_start(task_msg_loop_t msg_loop, rt_uint32_t delay_ms, enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 启动定时循环消息发布 |
-| rt_err_t task_msg_loop_stop(task_msg_loop_t msg_loop); | 停止定时循环消息发布 |
+| rt_err_t task_msg_scheduled_append(enum task_msg_name msg_name, void *msg_obj, rt_size_t msg_size); | 添加一个计划消息，但不发送 |
+| rt_err_t task_msg_scheduled_start(enum task_msg_name msg_name, int delay_ms, rt_uint32_t repeat, int interval_ms); | 启动一个计划消息（如果之前没有添加过，将自动添加一个无消息体的计划消息）：当repeat=0时，先延时delay_ms毫秒发送1次消息后，再按interval_ms毫秒间隔周期性循环发送消息；当repeat=1时，interval_ms参数无效，将延时delay_ms毫秒发送1次消息；当repeat>1时，先延时delay_ms毫秒发送1次消息后，再按interval_ms毫秒间隔周期性循环发送(repeat-1)次消息|
+| rt_err_t task_msg_scheduled_restart(enum task_msg_name msg_name); | 重新启动一个计划消息（将重置定时器） |
+| rt_err_t task_msg_scheduled_stop(enum task_msg_name msg_name); | 停止一个计划消息 |
+| void task_msg_scheduled_delete(enum task_msg_name msg_name); | 删除一个计划消息 |
 | int task_msg_subscriber_create(enum task_msg_name msg_name); | 创建一个消息订阅者，返回订阅者ID |
 | int task_msg_subscriber_create2(const enum task_msg_name *msg_name_list, rt_uint8_t msg_name_list_len); | 创建一个可以订阅多个主题的消息订阅者，返回订阅者ID |
-| rt_err_t task_msg_wait_until(int subscriber_id, rt_int32_t timeout_ms, struct task_msg_args **out_args); | 阻塞等待指定订阅者的消息 |
+| rt_err_t task_msg_wait_until(int subscriber_id, rt_int32_t timeout_ms, struct task_msg_args **out_args); | 阻塞等待指定订阅者订阅的消息 |
 | void task_msg_release(task_msg_args_t args); | 释放已经消费的消息 |
 | void task_msg_subscriber_delete(int subscriber_id); | 删除一个消息订阅者 |
 
@@ -276,20 +275,7 @@ static void msg_wait_any_thread_entry(void *params)
             }
             else if(args->msg_name==TASK_MSG_NET_REDAY)
             {
-            #ifdef TASK_MSG_USING_JSON
-                cJSON *root = cJSON_Parse(args->msg_obj);
-                if(root)
-                {
-                    int net_reday, id;
-                    cJSON_item_get_number(root, "net_reday", &net_reday);
-                    cJSON_item_get_number(root, "id", &id);
-                    const char *ip = cJSON_item_get_string(root, "ip");
-                    LOG_D("[task_msg_wait_any]:TASK_MSG_NET_REDAY => net_reday:%s, ip:%s, id:%d", (net_reday==0 ? "false" : "true"), ip, id);
-                    cJSON_Delete(root);
-                }
-            #else
                 LOG_D("[task_msg_wait_any]:TASK_MSG_NET_REDAY => args.msg_name:%d, args.msg_obj:%s", args->msg_name, args->msg_obj);
-            #endif
             }
             else if(args->msg_name==TASK_MSG_2)
             {
